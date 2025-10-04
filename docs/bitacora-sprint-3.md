@@ -1,14 +1,12 @@
 # Bitácora — Sprint 3
 
-## Pruebas bats
-
 ### 1) Objetivos
 - Refactor de pruebas: limpieza, nombres claros, helpers reutilizables.
 - Añadir test de **idempotencia**: dos corridas seguidas sin “trabajo extra” (payload estable; contador de métricas aumenta solo lo esperado).
 - Mantener AAA/RGR y evidencias legibles.
+- Mejorar escritura de logs en el servicio Flask.
 
 ### 2) Cambios principales
-
 -`src/service.py`
   - **Logging** a `out/service.log` (configurable con `LOG_PATH`).
   - **Nueva métrica global** `http_requests_total` (todas las requests) además de `http_requests_total{path="/health"}`.
@@ -16,7 +14,6 @@
   - **Concurrencia**: contadores protegidos con `threading.Lock`.
   - **Robustez**: manejo de errores con `try/except` en `/health` y `/metrics`, con `logging.exception`.
   - **Sin cambios de contrato**: `/health` sigue respondiendo `{"status":"ok"}` y `/metrics` mantiene `process_uptime_seconds` y el contador de `/health`.
-
 
 
 - `tests/health_metrics.bats`:
