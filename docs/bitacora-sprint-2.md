@@ -18,6 +18,15 @@ Ampliar casos **negativos** y mantener **AAA/RGR** con **reportes legibles**:
     - `body_excerpt.txt` (primeros 4 KB)
     - `meta.txt` (URL, budget, http_code, tiempo total, content-type)
 
+- `src/service.py`:
+  - Implementación en **Flask** del servicio real conforme a los contratos definidos.
+  - Endpoint `/health`: responde `200 OK`, `application/json` con `{"status":"ok"}`.  
+    - Se añadió contador de requests a `/health` protegido con `Lock`.
+  - Endpoint `/metrics`: responde `200 OK`, `text/plain` con métricas en formato Prometheus:  
+    - `process_uptime_seconds <num>` (uptime del proceso).  
+    - `http_requests_total{path="/health"} <num>` (total de requests al endpoint `/health`).  
+  - Endpoint de fallback: rutas no definidas → `404 Not Found`, JSON `{"error":"not found"}`.
+
 ## 3) Evidencias
 Tras ejecutar la suite:
 - Se generan directorios `out/20251001-153000-health-200`, `out/...-metrics-minimas`, etc.
@@ -28,6 +37,14 @@ Tras ejecutar la suite:
 - La latencia sobre presupuesto se valida con **umbral local estricto** para probar el detector de SLA sin acoplarse al entorno.
 
 ## 5) Cómo correr
+
+```bash
+python3 -m venv .venv
+. .venv/bin/activate
+pip install -r requirements.txt
+PORT=8080 BIND_ADDR=127.0.0.1 python src/service.py
+```
+
 ```bash
 # Variables
 export BASE_URL=http://127.0.0.1:8080
