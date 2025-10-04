@@ -66,6 +66,29 @@ get_header() {
   grep -i "^$name:" "$TMP_H" | head -n1 | tr -d '\r'
 }
 
+# metric_value <regex-linea-completa>
+# Devuelve solo el número al final de la línea; si no hay match, imprime vacío.
+metric_value() {
+  local line_regex="$1"
+  # Toma primera coincidencia, corta último campo
+  local line
+  line="$(grep -E "$line_regex" "$TMP_B" | head -n1 || true)"
+  [ -z "$line" ] && { echo ""; return 0; }
+  # último campo (valor)
+  echo "$line" | awk '{print $NF}'
+}
+
+# normalize_health_body: redacción invariante para comparar (enmascara "time")
+normalize_health_body() {
+  # Sustituye el valor del campo "time" por un marcador estable
+  sed -E 's/"time"[[:space:]]*:[[:space:]]*"[^"]*"/"time":"<xxxxx>"/g' "$TMP_B"
+}
+
+# sha256_of_stdin: hash estable sin saltos extra
+sha256_of_stdin() {
+  # shellcheck disable=SC2002
+  cat - | sha256sum | awk '{print $1}'
+}
 
 #
 # --------- CASOS POSITIVOS ---------
@@ -173,4 +196,50 @@ get_header() {
   # Guardamos evidencia básica (no tenemos TMP_H/TMP_B aquí, así que solo meta)
   HTTP_CODE="" TIME_TOTAL_S=""
   save_evidence "health-neg-latency"
+}
+
+# -----------------------
+# Idempotencia
+# -----------------------
+# 1) Dos GET consecutivos a /health no cambian el payload excepto campos volátiles (time).
+# 2) El contador http_requests_total{path="/health"} aumenta en al menos el número de llamadas efectuadas (predecible y sin "trabajo extra" no solicitado).
+
+@test "idempotencia: dos GET /health seguidos, payload estable y diferencia de métricas predecible" {
+  # Arrange: leer contador base
+  read -r _ _ <<<"$(curl_plain /metrics)"
+  local base
+  base="$(metric_value '^http_requests_total\{.*path="/health".*\} [0-9.eE+-]+$')"
+  [ -n "$base" ] || skip "No se pudo leer contador base en /metrics (skip idempotencia)."
+
+  # Act 1: primera llamada a /health
+  read -r code1 t1 <<<"$(curl_json /health)"
+  [ "$code1" -eq 200 ]
+  local norm1
+  norm1="$(normalize_health_body | sha256_of_stdin)"
+
+  # Act 2: segunda llamada a /health
+  read -r code2 t2 <<<"$(curl_json /health)"
+  [ "$code2" -eq 200 ]
+  local norm2
+  norm2="$(normalize_health_body | sha256_of_stdin)"
+
+  # Assert A: payloads normalizados iguales (solo 'time' puede variar)
+  [ "$norm1" = "$norm2" ]
+
+  # Assert B: delta de métrica >= 2 y <= 2 + ALLOW_METRIC_SLACK
+  read -r _ _ <<<"$(curl_plain /metrics)"
+  local after
+  after="$(metric_value '^http_requests_total\{.*path="/health".*\} [0-9.eE+-]+$')"
+  [ -n "$after" ]
+
+  # usamos awk para comparar números con posible parte decimal
+  run awk -v a="$after" -v b="$base" 'BEGIN{
+    delta = a - b
+    exit !(delta == 2)
+  }'
+  [ "$status" -eq 0 ]
+
+  # Evidencia
+  HTTP_CODE=200 TIME_TOTAL_S="$t1,$t2" CONTENT_TYPE="$(get_header Content-Type)"
+  save_evidence "idempotencia-health-2x"
 }
