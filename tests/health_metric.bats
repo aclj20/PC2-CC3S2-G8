@@ -38,19 +38,44 @@ save_evidence() {
   echo "# Evidencia guardada en $dir"
 }
 
+# -------
+# Helpers
+# -------
+
+# curl_json <path> (para /health)
+curl_json() {
+  local path="$1"
+  : >"$TMP_H"; : >"$TMP_B"
+  # stdout prints: "<http_code> <time_total>"
+  read -r code ttotal < <(curl -sS -D "$TMP_H" -o "$TMP_B" -w "%{http_code} %{time_total}" "$BASE_URL$path")
+  echo "$code $ttotal"
+}
+
+# curl_plain <path>  (para /metrics)
+curl_plain() {
+  local path="$1"
+  : >"$TMP_H"; : >"$TMP_B"
+  # stdout prints: "<http_code> <content_type>"
+  read -r code ctype < <(curl -sS -D "$TMP_H" -o "$TMP_B" -w "%{http_code} %{content_type}" "$BASE_URL$path")
+  echo "$code $ctype"
+}
+
+# get_header <Header-Name>  ->  echo "Header-Name: value"
+get_header() {
+  local name="$1"
+  grep -i "^$name:" "$TMP_H" | head -n1 | tr -d '\r'
+}
+
+
 #
 # --------- CASOS POSITIVOS ---------
 #
 
 @test "GET /health -> 200 y Content-Type application/json (contrato mínimo)" {
   # Act
-  run bash -c '
-    read -r code ttotal < <(curl -sS -D "$TMP_H" -o "$TMP_B" -w "%{http_code} %{time_total}" "'"$BASE_URL"'/health");
-    echo "$code $ttotal"
-  '
-  [ "$status" -eq 0 ]
-  read -r HTTP_CODE TIME_TOTAL_S <<<"$output"
-  CONTENT_TYPE="$(grep -i "^content-type:" "$TMP_H" | head -n1 | tr -d "\r")"
+  read -r HTTP_CODE TIME_TOTAL_S <<<"$(curl_json /health)"
+  CONTENT_TYPE="$(get_header Content-Type)"
+
 
   # Assert
   [ "$HTTP_CODE" -eq 200 ]
@@ -62,12 +87,8 @@ save_evidence() {
 
 @test "GET /health -> body con status=\"ok\" y latencia <= BUDGET_MS" {
   # Act
-  run bash -c '
-    read -r code ttotal < <(curl -sS -D "$TMP_H" -o "$TMP_B" -w "%{http_code} %{time_total}" "'"$BASE_URL"'/health");
-    echo "$code $ttotal"
-  '
-  [ "$status" -eq 0 ]
-  read -r HTTP_CODE TIME_TOTAL_S <<<"$output"
+  read -r HTTP_CODE TIME_TOTAL_S <<<"$(curl_json /health)"
+
 
   # Assert: 200
   [ "$HTTP_CODE" -eq 200 ]
@@ -85,19 +106,12 @@ save_evidence() {
 
 @test "GET /metrics -> 200, text/plain y métricas mínimas (uptime + requests a /health)" {
   # Act
-  run bash -c '
-    read -r code ctype < <(curl -sS -D "$TMP_H" -o "$TMP_B" -w "%{http_code} %{content_type}\n" "'"$BASE_URL"'/metrics");
-    echo "$code" && echo "$ctype"
-  '
-  [ "$status" -eq 0 ]
-  HTTP_CODE="$(echo "$output" | sed -n "1p")"
-  CONTENT_TYPE="$(echo "$output" | sed -n "2p")"
-
+  read -r HTTP_CODE CONTENT_TYPE <<<"$(curl_plain /metrics)"
   # Assert
   [ "$HTTP_CODE" -eq 200 ]
   run grep -iq "^content-type: *text/plain" "$TMP_H"
   [ "$status" -eq 0 ]
-  run grep -E '^process_uptime_seconds([[:space:]]|{).* [0-9.eE+-]+$' "$TMP_B"
+  run awk '/^process_uptime_seconds/ { v=$NF; if (v ~ /^[0-9.eE+-]+$/) ok=1 } END { exit !(ok) }' "$TMP_B"
   [ "$status" -eq 0 ]
   run grep -E '^http_requests_total\{.*path="/health".*\} [0-9.eE+-]+$' "$TMP_B"
   [ "$status" -eq 0 ]
@@ -134,22 +148,15 @@ save_evidence() {
 
 @test "NEG: /health con status distinto de \"ok\" -> si sucede, debe detectarse" {
   # Solo valida si el status devuelto NO es 'ok'. Si es 'ok', skip.
-  run bash -c '
-    read -r _ _ < <(curl -sS -D "$TMP_H" -o "$TMP_B" -w "%{http_code} %{time_total}" "'"$BASE_URL"'/health");
-    if grep -q "\"status\"[[:space:]]*:[[:space:]]*\"ok\"" "$TMP_B"; then
-      echo "OK"
-    else
-      echo "BAD"
-    fi
-  '
-  [ "$status" -eq 0 ]
-  if [ "$output" = "OK" ]; then
-    skip "Precondición no cumplida: /health devolvió status=\"ok\" (negativo no aplica)."
+  read -r _ _ <<<"$(curl_json /health)"
+  if grep -q '"status"[[:space:]]*:[[:space:]]*"ok"' "$TMP_B"; then
+    skip 'Precondición no cumplida: status="ok" (negativo no aplica).'
   fi
 
-  # Si no es "ok", el detector lo marca y el negativo pasa
-  [ "$output" = "BAD" ]
+  # Assert
+  true  # si llegó aquí, el status no es "ok" y el negativo se considera detectado
   save_evidence "health-neg-status"
+
 }
 
 @test "NEG: latencia por encima de BUDGET_MS -> detector debe marcar exceso" {
