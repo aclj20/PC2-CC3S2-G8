@@ -71,7 +71,7 @@ get_header() {
 # --------- CASOS POSITIVOS ---------
 #
 
-@test "GET /health -> 200 y Content-Type application/json (contrato mínimo)" {
+@test "health: 200 y Content-Type application/json" {
   # Act
   read -r HTTP_CODE TIME_TOTAL_S <<<"$(curl_json /health)"
   CONTENT_TYPE="$(get_header Content-Type)"
@@ -85,7 +85,7 @@ get_header() {
   save_evidence "health-200"
 }
 
-@test "GET /health -> body con status=\"ok\" y latencia <= BUDGET_MS" {
+@test "health: status=\"ok\" y latencia <= BUDGET_MS" {
   # Act
   read -r HTTP_CODE TIME_TOTAL_S <<<"$(curl_json /health)"
 
@@ -104,7 +104,7 @@ get_header() {
   save_evidence "health-ok-latency"
 }
 
-@test "GET /metrics -> 200, text/plain y métricas mínimas (uptime + requests a /health)" {
+@test "metrics: 200, text/plain y métricas mínimas" {
   # Act
   read -r HTTP_CODE CONTENT_TYPE <<<"$(curl_plain /metrics)"
   # Assert
@@ -123,7 +123,7 @@ get_header() {
 # --------- CASOS NEGATIVOS AMPLIADOS ---------
 #
 
-@test "NEG: /metrics estructura inválida -> si sucede, debe detectarse y reportarse" {
+@test "neg: estructura inválida en metrics -> si aparece, debe detectarse" {
   # Este negativo se ejecuta SOLO si la respuesta realmente está mal formada.
   # Si está bien, hacemos skip (precondición no cumplida) para mantener verde.
   run curl -sS "$BASE_URL/metrics" > "$TMP_B"
@@ -146,7 +146,7 @@ get_header() {
   save_evidence "metrics-neg-structure"
 }
 
-@test "NEG: /health con status distinto de \"ok\" -> si sucede, debe detectarse" {
+@test "neg: health con status distinto a \"ok\" -> si ocurre, detectarlo" {
   # Solo valida si el status devuelto NO es 'ok'. Si es 'ok', skip.
   read -r _ _ <<<"$(curl_json /health)"
   if grep -q '"status"[[:space:]]*:[[:space:]]*"ok"' "$TMP_B"; then
@@ -159,7 +159,7 @@ get_header() {
 
 }
 
-@test "NEG: latencia por encima de BUDGET_MS -> detector debe marcar exceso" {
+@test "neg: detector de latencia (umbral local estricto)" {
   # Simulación controlada: fijamos un umbral estricto local para forzar la condición.
   # Esto valida el detector SIN depender de la latencia real del entorno.
   STRICT_MS=1  # 1 ms, fuerza exceso casi siempre
