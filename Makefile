@@ -15,7 +15,7 @@ PY          ?= $(VENV)/bin/python
 
 APP         ?= $(SRCDIR)/service.py
 BIND_ADDR   ?= 127.0.0.1
-PORT        ?= 8000
+PORT        ?= 8080
 BUDGET_MS   ?= 150
 
 REL         ?= 0.3.0
